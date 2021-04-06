@@ -90,9 +90,12 @@ struct ContentView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
-    @State private var status = ""
-    @State private var successStatus = false
-    @State private var displayStatusAfterPickerChange = false
+    @State private var message = ""
+    
+    // isASuccessMessage determines message color
+    @State private var isASuccessMessage = false
+    
+    @State private var displaysMessageAfterPickerChange = false
     
     var body: some View {
         VStack {
@@ -101,93 +104,163 @@ struct ContentView: View {
             Picker(selection: $selected, label: Text(""), content: {
                 Text("Sign in").tag(0)
                 Text("Sign up").tag(1)
-                Text("Forget password").tag(2)
             }).pickerStyle(SegmentedPickerStyle())
+            
+            // After mannually changing picker, message is reset
+            // If picker is changed by the app, it won't reset until manually switching
             .onChange(of: selected, perform: { _ in
-                if displayStatusAfterPickerChange {
-                    displayStatusAfterPickerChange.toggle()
+                if displaysMessageAfterPickerChange {
+                    displaysMessageAfterPickerChange.toggle()
                 } else {
-                    setStatus("", success: false)
+                    setMessage("", success: false)
                 }
             })
+            
             TextField("Email", text: $email)
                 .textContentType(.emailAddress)
-            
+                .textFieldStyle(RoundedBorderTextFieldStyle())
             switch selected {
+            
+            // Sign in
             case 0:
                 SecureField("Password", text: $password)
-                Text(status)
-                    .foregroundColor(successStatus ? .black : .red)
-                Button(action: signIn) {
-                    Text("Sign in")
-                }
+                Text(message)
+                    .foregroundColor(isASuccessMessage ? .black : .red)
+                Button("Sign In", action: signIn)
+                Button("Forgot Password?", action: {selected = 2})
+                    .buttonStyle(DefaultButtonStyle())
+                    .foregroundColor(.gray)
+                
+            // Sign up
             case 1:
                 SecureField("Password", text: $password)
                 SecureField("Confirm Password", text: $confirmPassword)
-                Text(status)
-                    .foregroundColor(successStatus ? .black : .red)
-                Button(action: signUp) {
-                    Text("Sign up")
-                }
+                Text(message)
+                    .foregroundColor(isASuccessMessage ? .black : .red)
+                Button("Sign Up", action: signUp)
+                
+            // Reset password
             default:
                 SecureField("New Password", text: $password)
                 SecureField("Confirm New Password", text: $confirmPassword)
-                Text(status)
-                    .foregroundColor(successStatus ? .black : .red)
-                Button(action: resetPassword) {
-                    Text("Reset Password")
-                }
+                Text(message)
+                    .foregroundColor(isASuccessMessage ? .black : .red)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                Button("Reset Password", action: resetPassword)
             }
         }
+        .textFieldStyle(RoundedBorderTextFieldStyle())
+        .buttonStyle(RoundedRectangleButtonStyle())
+        .padding(20)
     }
+    
+    struct RoundedRectangleButtonStyle: ButtonStyle {
+      func makeBody(configuration: Configuration) -> some View {
+        Button(action: {}, label: {
+          HStack {
+            Spacer()
+            configuration.label.foregroundColor(.black)
+            Spacer()
+          }
+        })
+        // 👇🏻 makes all taps go to the the original button
+        .allowsHitTesting(false)
+        .padding()
+        .background(Color.gray.cornerRadius(8))
+        .scaleEffect(configuration.isPressed ? 0.95 : 1)
+      }
+    }
+    
     private func signIn() {
         if isValidEmail(email) {
-            if email == "1@com.com" {
-                if true {
-                    status = "Success"
+            do {
+                let record = try viewContext.fetch(getEmailFetchRequest(email: email))
+                
+                // If email is registered
+                if record.count == 1 {
+                    if record[0].password == password {
+                        setMessage("Sign in success!", success: true)
+                    } else {
+                        setMessage("Wrong password", success: false)
+                    }
                 } else {
-                    status = "Wrong password"
+                    
+                    // Jump to sign up UI and show the message if not registered
+                    setMessage("This email is not registered. Please sign up.", success: false)
+                    switchPickerAndDisplayMessage(selection: 1)
+                    
                 }
-            } else if true {
-                setStatus("This email is not registered. Please sign up.", success: false)
-                selected = 1
-                displayStatusAfterPickerChange = true
+            } catch {
+                
             }
         } else {
-            setStatus("Please enter a valid email address", success: false)
+            setMessage("Please enter a valid email address", success: false)
         }
     }
     
     private func signUp() {
-        if isValidEmail(email) && password != "" {
-            if true {
-                let newAccount = Account(context: viewContext)
-                newAccount.email = email
-                newAccount.password = password
-                do {
-                    try viewContext.save()
-                } catch {
-                    
+        if isValidEmail(email) {
+            do {
+                let record = try viewContext.fetch(getEmailFetchRequest(email: email))
+                
+                // If the account is not registered
+                if record.count == 0 {
+                    if (password == "") {
+                        setMessage("Password cannot be empty", success: false)
+                    } else if (password != confirmPassword) {
+                        setMessage("Passwords do not match", success: false)
+                    } else {
+                        
+                        // Save account info to Core Data
+                        let newAccount = Account(context: viewContext)
+                        newAccount.email = email.lowercased()
+                        newAccount.password = password
+                        try viewContext.save()
+                        
+                        // Jump to sign in UI and show the success message after registration
+                        setMessage("Thank you for signing up!", success: true)
+                        switchPickerAndDisplayMessage(selection: 0)
+                        
+                        confirmPassword = ""
+                    }
+                } else {
+                    setMessage("This email is already registered. Please Sign in.", success: false)
+                    switchPickerAndDisplayMessage(selection: 0)
                 }
-                setStatus("Thank you for signing up!", success: true)
-                selected = 0
-                displayStatusAfterPickerChange = true
-                print("Documents Directory: ", FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).last ?? "Not Found!")
-            } else {
-                setStatus("This email is already registered. Please Sign in.", success: false)
-                selected = 0
-                displayStatusAfterPickerChange = true
+            } catch {
+                
             }
-        } else if true {
-            status = "This email is already registered."
+        } else {
+            setMessage("Please enter a valid email address", success: false)
         }
     }
     
     private func resetPassword() {
-        if true {
-            setStatus("Success", success: true)
-        } else if true {
-            setStatus("This email is not registered.", success: false)
+        if isValidEmail(email) {
+            do {
+                let record = try viewContext.fetch(getEmailFetchRequest(email: email))
+                if record.count == 1 {
+                    if (password == "") {
+                        setMessage("Password cannot be empty", success: false)
+                    } else if (password != confirmPassword) {
+                        setMessage("Passwords do not match", success: false)
+                    } else {
+                        
+                        record[0].password = password
+                        try viewContext.save()
+                        
+                        setMessage("Success", success: true)
+                        switchPickerAndDisplayMessage(selection: 0)
+                        confirmPassword = ""
+                    }
+                } else {
+                    setMessage("This email is not registered", success: false)
+                }
+            } catch {
+                
+            }
+        } else {
+            setMessage("Please enter a valid email address", success: false)
         }
     }
     
@@ -197,13 +270,20 @@ struct ContentView: View {
         return emailPred.evaluate(with: email)
     }
     
-    private func setStatus(_ message: String, success: Bool) {
-        status = message
-        successStatus = success
+    // A fetchRequest that is used to check whether specified email is registered
+    private func getEmailFetchRequest(email: String) -> NSFetchRequest<Account> {
+        let fetchRequest: NSFetchRequest<Account> = Account.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "email = %@", email.lowercased())
+        return fetchRequest
     }
     
-    private func changPickerAndDisplayMessage(_ message: String, success: Bool) {
-        status = message
-        successStatus = success
+    private func setMessage(_ newMessage: String, success: Bool) {
+        message = newMessage
+        isASuccessMessage = success
+    }
+    
+    private func switchPickerAndDisplayMessage(selection: Int) {
+        selected = selection
+        displaysMessageAfterPickerChange = true
     }
 }
